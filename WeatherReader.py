@@ -1,72 +1,68 @@
 import json
 import requests
-import json_flatten
+import os
+from dotenv import load_dotenv
+import datetime
 
-tokens = ['pQjpjnuowebqoRHjvgJfhSnSvRPlxlJt', 'mJIjDxRUCQJDpXIEiwpJfKNxhZgrYGvx']
-token_number = 0
+load_dotenv()
 
-parameters = {
-        'token': tokens[token_number]
-        }
+batch_size = 130
 
-keys = {
-        'results.0.value$int': 'precipitation',
-        'results.0.value$float': 'precipitation'
-        }
-    
-def change_token():
-    global token_number
-    token_number += 1
-    if(token_number == len(tokens)):
-        token_number = 0
 
-def get_raw_weather(id, start_date, end_date):
-    
-    return requests.get('https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=' + 
-                               id + '&startdate=' + start_date + 
-                               '&enddate=' + end_date, headers = parameters)
-    
-def get_weather(station, start_date, end_date):
-    global token_number
-    global parameters
-    raw_weather = get_raw_weather(station[0], start_date, end_date)
-    while raw_weather.status_code == 429:
-        change_token()
-        parameters['token'] = tokens[token_number]
-        raw_weather = get_raw_weather(station[0], start_date, end_date)
-    raw_weather = json_flatten.flatten(raw_weather.json())
-    processed_weather = dict.fromkeys([keys[key] for key in keys])
-    for key in keys:
-        if key in raw_weather:
-            processed_weather[keys[key]] = raw_weather[key]
-    processed_weather['id'] = station[0]
-    processed_weather['latitude'] = station[1]
-    processed_weather['longitude'] = station[2]
-    return processed_weather
+def get_raw_weather(ids, start_date, end_date):
+    request_ids = '&stationid='.join(id for id in ids)
+    return requests.get('https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=' + request_ids +
+                        '&startdate=' + start_date + '&enddate=' + end_date + '&limit=1000', headers={'token': os.getenv('NOAA_TOKEN')})
 
-def get_all_data(date):
-    with open('StationsForMeasurement.txt', 'r') as read_file:
-        stations = read_file.read().splitlines()
-        with open('./Measurements/' + date + '.json', 'w') as write_file:
+
+def get_weather(stations, start_date, end_date):
+    raw_weather = get_raw_weather([station['id'] for station in stations], start_date, end_date)
+    if raw_weather.status_code == 429:
+        print('No requests left!')
+        return None
+    if raw_weather.status_code != 200:
+        print('Some problems, status code {}'.format(raw_weather.status_code))
+        return None
+    raw_weather = raw_weather.json()
+    if(raw_weather == {}):
+        return {}
+    processed_weather = {station['id']: {'latitude': station['latitude'], 'longitude': station['longitude'], 'elevation': station['elevation']} for station in stations}
+    for measurement in raw_weather['results']:
+        processed_weather[measurement['station']][measurement['datatype']] = measurement['value']
+    return {station: measurements for station, measurements in processed_weather.items() if len(measurements) > 3}
+
+
+def get_weather_for_all_stations(date):
+    offset = 0
+    all_weather = {}
+    with open('StationsForMeasurement.json', 'r') as read_file:
+        stations = json.load(read_file)
+        with open('Measurements/' + date + '.json', 'w') as write_file:
             write_file.truncate(0)
-            counter = 0
-            for station in stations:
-                counter += 1
-                if counter % 200 == 0:
-                    print(str(round(min(counter / len(stations) * 100, 100), 1)) + "% complete")
+            while offset < len(stations):
                 try:
-                    weather = get_weather(station.split(" "), date, date)
-                    print(weather['precipitation'])
-                    print(weather['precipitation'] != None)
-                    if weather['precipitation'] != None:
-                        json.dump(weather, write_file)
-                        write_file.write('\n')
+                    weather = get_weather(stations[offset: offset + batch_size], date, date)
+                    if weather == None:
+                        return False
+                    all_weather.update(weather)
                 except Exception as e:
                     print(e)
                     if type(e) == KeyboardInterrupt:
                         exit()
-                    print("Couldn't process " + station)
+                offset += batch_size
+                print(str(round(min(offset / len(stations) * 100, 100), 1)) + "% complete")
+            json.dump(all_weather, write_file, indent=2)
             write_file.close()
         read_file.close()
+    return True
 
-get_all_data('2019-02-25')
+
+def get_weather_ALAP(start_date):
+    can_get_more = True
+    cur_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+    while can_get_more:
+        print('Processing ' + cur_date.strftime('%Y-%m-%d'))
+        can_get_more = get_weather_for_all_stations(cur_date.strftime('%Y-%m-%d'))
+        cur_date += datetime.timedelta(days=-1)
+
+#get_weather_ALAP('2018-06-17')
