@@ -9,6 +9,7 @@ verify_ssl = true
 json-flatten = "*"
 requests = "*"
 python-dotenv = "*"
+pandas = "*"
 
 [requires]
 python_version = "3.8"
