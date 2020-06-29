@@ -65,4 +65,4 @@ def get_weather_ALAP(start_date):
         can_get_more = get_weather_for_all_stations(cur_date.strftime('%Y-%m-%d'))
         cur_date += datetime.timedelta(days=-1)
 
-#get_weather_ALAP('2018-06-17')
+get_weather_ALAP('2019-02-13')

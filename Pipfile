@@ -10,6 +10,7 @@ json-flatten = "*"
 requests = "*"
 python-dotenv = "*"
 pandas = "*"
+tensorflow = "*"
 
 [requires]
 python_version = "3.8"
